@@ -22,6 +22,7 @@ function App() {
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [activeUrls, setActiveUrls] = useState<string[]>([AVAILABLE_FILES[0].url]);
   const [basemap, setBasemap] = useState<'dark' | 'light'>('dark');
+  const [controlExpanded, setControlExpanded] = useState(true);
   const lidarControlRef = useRef<LidarControl | null>(null);
   const loadedPointClouds = useRef<Map<string, string>>(new Map()); // URL -> ID
 
@@ -46,6 +47,11 @@ function App() {
       attributionControl: false
     });
 
+    // Auto-close control after 5 seconds
+    const timer = setTimeout(() => {
+      setControlExpanded(false);
+    }, 5000);
+
     mapInstance.on('load', () => {
       setMap(mapInstance);
       mapInstance.addControl(new maplibregl.NavigationControl(), 'top-left');
@@ -55,6 +61,7 @@ function App() {
     });
 
     return () => {
+      clearTimeout(timer);
       mapInstance.remove();
       setMap(null);
     };
@@ -181,6 +188,13 @@ function App() {
           colorScheme={state.colorScheme}
           onControlReady={handleControlReady}
           autoZoom={true}
+          collapsed={!controlExpanded}
+          onStateChange={(lidarState) => {
+            // Keep our local expanded state in sync if user toggles it manually
+            if (lidarState.collapsed === controlExpanded) {
+              setControlExpanded(!lidarState.collapsed);
+            }
+          }}
         />
       )}
     </div>
