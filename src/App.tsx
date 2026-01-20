@@ -155,6 +155,52 @@ function App() {
 
       <div ref={mapContainer} className="map-container" />
       
+      {/* Hourglass / Technical Loading Symbol */}
+      {state.loading && (
+        <div className="lidar-loading-indicator">
+          <div className="hourglass-container">
+            <div className="hourglass"></div>
+            <div className="loading-ring"></div>
+          </div>
+          <span className="loading-text">Lidar Data Processing...</span>
+        </div>
+      )}
+
+      {/* Visual Interactive Loading Overlay (Extra technical effect) */}
+      {state.loading && (
+        <div className="loading-overlay">
+          <div className="loading-content">
+            <div className="pulse-loader"></div>
+            <div className="loading-status">
+              <span className="technical-label">INITIALIZING SENSORS</span>
+              <div className="spinner-small"></div>
+            </div>
+            <div className="scanning-line"></div>
+          </div>
+        </div>
+      )}
+
+      {/* Streaming Progress Bar (Interactive technical feature) */}
+      {state.streamingActive && state.streamingProgress && (
+        <div className="streaming-status-bar">
+          <div className="status-item">
+            <span className="label">Points</span>
+            <span className="value">{(state.streamingProgress.loadedPoints / 1000000).toFixed(2)}M</span>
+          </div>
+          <div className="status-item">
+            <span className="label">Nodes</span>
+            <span className="value">{state.streamingProgress.loadedNodes}</span>
+          </div>
+          <div className="progress-track">
+            <div 
+              className="progress-fill" 
+              style={{ width: `${Math.min(100, (state.streamingProgress.loadedPoints / 5000000) * 100)}%` }}
+            ></div>
+          </div>
+          {state.streamingProgress.isLoading && <div className="live-tag">LIVE STREAMING</div>}
+        </div>
+      )}
+
       {map && (
         <LidarControlReact
           map={map}
