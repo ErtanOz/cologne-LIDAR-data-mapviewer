@@ -1,0 +1,190 @@
+.lidar-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(2, 6, 23, 0.8);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  overflow: hidden;
+  font-family: 'Outfit', sans-serif;
+}
+
+.lidar-loading-card {
+  width: 400px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  position: relative;
+  z-index: 10;
+  backdrop-filter: blur(20px);
+}
+
+.loading-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+
+.loading-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: white;
+  letter-spacing: -0.02em;
+}
+
+.loading-stats {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.progress-container {
+  height: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5, #9333ea, #ec4899);
+  background-size: 200% 100%;
+  animation: gradient-move 2s linear infinite;
+  border-radius: 6px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 20px rgba(79, 70, 229, 0.4);
+}
+
+.progress-shimmer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+.technical-details {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.1em;
+}
+
+.detail-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.detail-value.active {
+  color: #10b981;
+}
+
+.detail-value.pulse {
+  animation: blink 1s infinite alternate;
+}
+
+/* Animations */
+@keyframes gradient-move {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes blink {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+/* Dots animation */
+.dot-one { animation: dot 1.4s infinite; }
+.dot-two { animation: dot 1.4s infinite 0.2s; }
+.dot-three { animation: dot 1.4s infinite 0.4s; }
+
+@keyframes dot {
+  0% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Background Decoration */
+.scanning-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    linear-gradient(rgba(79, 70, 229, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79, 70, 229, 0.05) 1px, transparent 1px);
+  background-size: 50px 50px;
+  background-position: center center;
+  perspective: 1000px;
+  transform: rotateX(60deg) scale(2);
+  opacity: 0.3;
+}
+
+.decor-ring {
+  position: absolute;
+  border: 1px solid rgba(79, 70, 229, 0.1);
+  border-radius: 50%;
+  animation: orbit 10s linear infinite;
+}
+
+.ring-1 {
+  width: 600px;
+  height: 600px;
+  top: calc(50% - 300px);
+  left: calc(50% - 300px);
+}
+
+.ring-2 {
+  width: 800px;
+  height: 800px;
+  top: calc(50% - 400px);
+  left: calc(50% - 400px);
+  animation-direction: reverse;
+  animation-duration: 15s;
+}
+
+@keyframes orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
