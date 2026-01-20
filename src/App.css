@@ -197,12 +197,35 @@
   opacity: 0.9;
 }
 
-/* Specific styling for Lidar tool button icons if they use SVG directly */
-.lidar-control-btn svg path,
+/* Specific styling for Lidar tool button icons */
+.lidar-control-toggle {
+  background-color: var(--accent-primary) !important;
+  color: white !important;
+  border-radius: 50% !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.lidar-control-toggle:hover {
+  background-color: var(--accent-secondary) !important;
+  transform: scale(1.1) rotate(15deg) !important;
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.5) !important;
+}
+
+.lidar-control-toggle span,
+.lidar-control-toggle .maplibregl-ctrl-icon {
+  filter: invert(1) brightness(2) !important;
+  opacity: 1 !important;
+}
+
 .maplibregl-ctrl-group button svg path {
   fill: var(--text-main) !important;
   stroke: var(--text-main) !important;
 }
+
 .maplibregl-ctrl-group button:hover svg path {
   fill: var(--accent-secondary) !important;
   stroke: var(--accent-secondary) !important;
