@@ -176,6 +176,37 @@
   margin-bottom: 0;
 }
 
+.attribution-credits {
+  margin-top: 24px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  opacity: 0.8;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attribution-credits p {
+  margin: 0;
+}
+
+.attribution-credits span {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.attribution-credits a {
+  color: var(--accent-secondary);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+  transition: all 0.2s ease;
+}
+
+.attribution-credits a:hover {
+  color: var(--text-main);
+  border-bottom-color: var(--accent-secondary);
+}
+
 /* MapLibre Control Customization */
 .maplibregl-ctrl-group {
   border: 1px solid var(--border-color) !important;
