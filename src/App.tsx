@@ -50,7 +50,7 @@ function App() {
       setMap(mapInstance);
       mapInstance.addControl(new maplibregl.NavigationControl(), 'top-left');
       mapInstance.addControl(new maplibregl.AttributionControl({
-        customAttribution: 'Created by Ertan Özcan | Based on maplibre-gl-lidar by Qiusheng Wu | Data: <a href="https://www.opengeodata.nrw" target="_blank">opengeodata.nrw</a>'
+        customAttribution: 'Created by Ertan Özcan | Based on maplibre-gl-lidar by Qiusheng Wu | Data: <a href="https://www.opengeodata.nrw.de/" target="_blank">opengeodata.nrw.de</a>'
       }), 'bottom-right');
     });
 
@@ -158,7 +158,7 @@ function App() {
           <div className="attribution-credits">
             <p>Created by <span>Ertan Özcan</span></p>
             <p>Based on project <span>maplibre-gl-lidar</span> by <span>Qiusheng Wu</span></p>
-            <p className="data-source">Datasource: <a href="https://www.opengeodata.nrw" target="_blank" rel="noopener noreferrer">opengeodata.nrw</a></p>
+            <p className="data-source">Datasource: <a href="https://www.opengeodata.nrw.de/" target="_blank" rel="noopener noreferrer">opengeodata.nrw.de</a></p>
           </div>
         </div>
       </div>
