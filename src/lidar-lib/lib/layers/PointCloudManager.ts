@@ -1,0 +1,654 @@
+import { PointCloudLayer } from '@deck.gl/layers';
+import { COORDINATE_SYSTEM } from '@deck.gl/core';
+import type { PickingInfo } from '@deck.gl/core';
+import type { DeckOverlay } from '../core/DeckOverlay';
+import type { PointCloudData } from '../loaders/types';
+import type { ColorScheme, PointCloudBounds, ColormapName, ColorRangeConfig } from '../core/types';
+import type { PointCloudLayerOptions, PickedPointInfo } from './types';
+import { ColorSchemeProcessor } from '../colorizers/ColorScheme';
+
+/**
+ * Internal point cloud data with computed colors
+ */
+interface ManagedPointCloud {
+  id: string;
+  data: PointCloudData;
+  colors: Uint8Array;
+  coordinateOrigin: [number, number, number]; // [lng, lat, 0] center point
+  /** Per-layer visibility (default: true) */
+  visible: boolean;
+  /** Per-layer opacity override (null means use global) */
+  opacityOverride: number | null;
+}
+
+/**
+ * Manages deck.gl PointCloudLayer instances for visualization.
+ */
+export class PointCloudManager {
+  private _deckOverlay: DeckOverlay;
+  private _pointClouds: Map<string, ManagedPointCloud>;
+  private _options: PointCloudLayerOptions;
+  private _colorProcessor: ColorSchemeProcessor;
+  private _lastComputedBounds?: { min: number; max: number };
+
+  constructor(deckOverlay: DeckOverlay, options: Partial<PointCloudLayerOptions> = {}) {
+    this._deckOverlay = deckOverlay;
+    this._pointClouds = new Map();
+    this._colorProcessor = new ColorSchemeProcessor();
+    this._options = {
+      pointSize: options.pointSize ?? 2,
+      opacity: options.opacity ?? 1.0,
+      colorScheme: options.colorScheme ?? 'elevation',
+      usePercentile: options.usePercentile ?? true,
+      colormap: options.colormap ?? 'viridis',
+      colorRange: options.colorRange,
+      elevationRange: options.elevationRange ?? null,
+      pickable: options.pickable ?? false,
+      zOffset: options.zOffset ?? 0,
+      onHover: options.onHover,
+    };
+  }
+
+  /**
+   * Sets the hover callback.
+   *
+   * @param callback - Function called when a point is hovered
+   */
+  setOnHover(callback: ((info: PickedPointInfo | null) => void) | undefined): void {
+    this._options.onHover = callback;
+  }
+
+  /**
+   * Adds a point cloud to the visualization.
+   *
+   * @param id - Unique identifier for the point cloud
+   * @param data - Point cloud data (positions are already offsets from coordinateOrigin)
+   */
+  addPointCloud(id: string, data: PointCloudData): void {
+    const result = this._colorProcessor.getColorsWithBounds(data, this._options.colorScheme, {
+      usePercentile: this._options.usePercentile,
+      colormap: this._options.colormap,
+      colorRange: this._options.colorRange,
+      hiddenClassifications: this._options.hiddenClassifications,
+    });
+
+    // Store the computed bounds for colorbar display
+    if (result.bounds) {
+      this._lastComputedBounds = result.bounds;
+    }
+
+    // Use the coordinate origin from the data - positions are already stored as offsets
+    const coordinateOrigin = data.coordinateOrigin;
+
+    this._pointClouds.set(id, {
+      id,
+      data,
+      colors: result.colors,
+      coordinateOrigin,
+      visible: true,
+      opacityOverride: null,
+    });
+    this._createLayer(id);
+  }
+
+  /**
+   * Updates an existing point cloud with new data.
+   * Used for streaming/incremental loading where points are added over time.
+   *
+   * @param id - Unique identifier for the point cloud
+   * @param data - Updated point cloud data
+   */
+  updatePointCloud(id: string, data: PointCloudData): void {
+    // Skip update if no points to render
+    if (!data.positions || data.pointCount === 0) {
+      return;
+    }
+
+    const existing = this._pointClouds.get(id);
+
+    if (existing) {
+      // Recalculate colors for new data
+      const result = this._colorProcessor.getColorsWithBounds(data, this._options.colorScheme, {
+        usePercentile: this._options.usePercentile,
+        colormap: this._options.colormap,
+        colorRange: this._options.colorRange,
+        hiddenClassifications: this._options.hiddenClassifications,
+      });
+
+      // Store the computed bounds for colorbar display
+      if (result.bounds) {
+        this._lastComputedBounds = result.bounds;
+      }
+
+      this._pointClouds.set(id, {
+        id,
+        data,
+        colors: result.colors,
+        coordinateOrigin: data.coordinateOrigin,
+        visible: existing.visible,
+        opacityOverride: existing.opacityOverride,
+      });
+
+      // Recreate layers with new data
+      this._createLayer(id);
+    } else {
+      // New point cloud - use existing addPointCloud
+      this.addPointCloud(id, data);
+    }
+  }
+
+  /**
+   * Gets the current point count for a point cloud.
+   *
+   * @param id - Point cloud ID
+   * @returns Point count or 0 if not found
+   */
+  getPointCount(id: string): number {
+    return this._pointClouds.get(id)?.data.pointCount || 0;
+  }
+
+  /**
+   * Removes a point cloud from the visualization.
+   *
+   * @param id - ID of the point cloud to remove
+   */
+  removePointCloud(id: string): void {
+    const pc = this._pointClouds.get(id);
+    if (pc) {
+      // Remove all chunk layers
+      const CHUNK_SIZE = 1000000;
+      const numChunks = Math.ceil(pc.data.pointCount / CHUNK_SIZE);
+      for (let chunk = 0; chunk < numChunks; chunk++) {
+        this._deckOverlay.removeLayer(`pointcloud-${id}-chunk${chunk}`);
+      }
+    }
+    this._pointClouds.delete(id);
+  }
+
+  /**
+   * Checks if a point cloud exists.
+   *
+   * @param id - Point cloud ID
+   * @returns True if exists
+   */
+  hasPointCloud(id: string): boolean {
+    return this._pointClouds.has(id);
+  }
+
+  /**
+   * Gets all point cloud IDs.
+   *
+   * @returns Array of point cloud IDs
+   */
+  getPointCloudIds(): string[] {
+    return Array.from(this._pointClouds.keys());
+  }
+
+  /**
+   * Gets the bounds of a point cloud.
+   *
+   * @param id - Point cloud ID
+   * @returns Bounds or undefined if not found
+   */
+  getPointCloudBounds(id: string): PointCloudBounds | undefined {
+    return this._pointClouds.get(id)?.data.bounds;
+  }
+
+  /**
+   * Updates styling options for all point clouds.
+   *
+   * @param options - New style options
+   */
+  updateStyle(options: Partial<PointCloudLayerOptions>): void {
+    const colorSchemeChanged = options.colorScheme !== undefined &&
+      options.colorScheme !== this._options.colorScheme;
+    const percentileChanged = options.usePercentile !== undefined &&
+      options.usePercentile !== this._options.usePercentile;
+    const colormapChanged = options.colormap !== undefined &&
+      options.colormap !== this._options.colormap;
+    const colorRangeChanged = options.colorRange !== undefined;
+    const hiddenClassificationsChanged = options.hiddenClassifications !== undefined;
+
+    this._options = { ...this._options, ...options };
+
+    // If color-related settings changed, recompute colors
+    if (colorSchemeChanged || percentileChanged || colormapChanged || colorRangeChanged || hiddenClassificationsChanged) {
+      for (const [id, pc] of this._pointClouds) {
+        const result = this._colorProcessor.getColorsWithBounds(pc.data, this._options.colorScheme, {
+          usePercentile: this._options.usePercentile,
+          colormap: this._options.colormap,
+          colorRange: this._options.colorRange,
+          hiddenClassifications: this._options.hiddenClassifications,
+        });
+
+        // Store the computed bounds for colorbar display
+        if (result.bounds) {
+          this._lastComputedBounds = result.bounds;
+        }
+
+        this._pointClouds.set(id, {
+          ...pc,
+          colors: result.colors,
+          coordinateOrigin: pc.coordinateOrigin,
+          visible: pc.visible,
+          opacityOverride: pc.opacityOverride,
+        });
+      }
+    }
+
+    // Recreate all layers with new options
+    this._updateAllLayers();
+  }
+
+  /**
+   * Sets the point size.
+   *
+   * @param size - Point size in pixels
+   */
+  setPointSize(size: number): void {
+    this.updateStyle({ pointSize: size });
+  }
+
+  /**
+   * Sets the global opacity for all point clouds.
+   * This also clears any per-layer opacity overrides so the global value takes effect.
+   *
+   * @param opacity - Opacity value (0-1)
+   */
+  setOpacity(opacity: number): void {
+    // Clear all per-layer opacity overrides so global opacity takes effect
+    for (const [id, pc] of this._pointClouds) {
+      if (pc.opacityOverride !== null) {
+        this._pointClouds.set(id, { ...pc, opacityOverride: null });
+      }
+    }
+    this.updateStyle({ opacity });
+  }
+
+  /**
+   * Sets the color scheme.
+   *
+   * @param scheme - Color scheme to apply
+   */
+  setColorScheme(scheme: ColorScheme): void {
+    this.updateStyle({ colorScheme: scheme });
+  }
+
+  /**
+   * Sets whether to use percentile range for elevation/intensity coloring.
+   *
+   * @param usePercentile - Whether to use percentile range (2-98%)
+   */
+  setUsePercentile(usePercentile: boolean): void {
+    this.updateStyle({ usePercentile });
+  }
+
+  /**
+   * Sets the colormap for elevation/intensity coloring.
+   *
+   * @param colormap - Colormap name
+   */
+  setColormap(colormap: ColormapName): void {
+    this.updateStyle({ colormap });
+  }
+
+  /**
+   * Sets the color range configuration.
+   *
+   * @param colorRange - Color range configuration
+   */
+  setColorRange(colorRange: ColorRangeConfig): void {
+    this.updateStyle({ colorRange });
+  }
+
+  /**
+   * Sets the elevation range filter.
+   *
+   * @param range - [min, max] elevation or null to disable
+   */
+  setElevationRange(range: [number, number] | null): void {
+    this.updateStyle({ elevationRange: range });
+  }
+
+  /**
+   * Sets whether points are pickable (enables hover/click interactions).
+   *
+   * @param pickable - Whether points should be pickable
+   */
+  setPickable(pickable: boolean): void {
+    this.updateStyle({ pickable });
+  }
+
+  /**
+   * Sets the Z offset for vertical adjustment.
+   *
+   * @param offset - Z offset in meters
+   */
+  setZOffset(offset: number): void {
+    this.updateStyle({ zOffset: offset });
+  }
+
+  /**
+   * Sets the hidden classifications for filtering.
+   *
+   * @param hidden - Set of classification codes to hide
+   */
+  setHiddenClassifications(hidden: Set<number>): void {
+    this.updateStyle({ hiddenClassifications: hidden });
+  }
+
+  /**
+   * Sets visibility for a specific point cloud.
+   *
+   * @param id - Point cloud ID
+   * @param visible - Whether the point cloud should be visible
+   */
+  setPointCloudVisibility(id: string, visible: boolean): void {
+    const pc = this._pointClouds.get(id);
+    if (pc) {
+      this._pointClouds.set(id, { ...pc, visible });
+      this._createLayer(id);
+    }
+  }
+
+  /**
+   * Gets visibility for a specific point cloud.
+   *
+   * @param id - Point cloud ID
+   * @returns Whether the point cloud is visible, or undefined if not found
+   */
+  getPointCloudVisibility(id: string): boolean | undefined {
+    return this._pointClouds.get(id)?.visible;
+  }
+
+  /**
+   * Sets opacity for a specific point cloud.
+   *
+   * @param id - Point cloud ID
+   * @param opacity - Opacity value (0-1), or null to use global opacity
+   */
+  setPointCloudOpacity(id: string, opacity: number | null): void {
+    const pc = this._pointClouds.get(id);
+    if (pc) {
+      this._pointClouds.set(id, { ...pc, opacityOverride: opacity });
+      this._createLayer(id);
+    }
+  }
+
+  /**
+   * Gets opacity for a specific point cloud.
+   *
+   * @param id - Point cloud ID
+   * @returns Opacity value (0-1), or undefined if not found
+   */
+  getPointCloudOpacity(id: string): number | undefined {
+    const pc = this._pointClouds.get(id);
+    if (!pc) return undefined;
+    return pc.opacityOverride ?? this._options.opacity;
+  }
+
+  /**
+   * Clears all point clouds.
+   */
+  clear(): void {
+    for (const [id, pc] of this._pointClouds) {
+      // Remove all chunk layers
+      const CHUNK_SIZE = 1000000;
+      const numChunks = Math.ceil(pc.data.pointCount / CHUNK_SIZE);
+      for (let chunk = 0; chunk < numChunks; chunk++) {
+        this._deckOverlay.removeLayer(`pointcloud-${id}-chunk${chunk}`);
+      }
+    }
+    this._pointClouds.clear();
+  }
+
+  /**
+   * Gets the current options.
+   */
+  getOptions(): PointCloudLayerOptions {
+    return { ...this._options };
+  }
+
+  /**
+   * Gets the last computed color bounds.
+   * Used for displaying accurate colorbar min/max values.
+   */
+  getLastComputedBounds(): { min: number; max: number } | undefined {
+    return this._lastComputedBounds;
+  }
+
+  /**
+   * Gets merged point cloud data from all loaded point clouds.
+   * Used for cross-section profile extraction.
+   *
+   * @returns Merged point cloud data or null if no data loaded
+   */
+  getMergedPointCloudData(): PointCloudData | null {
+    if (this._pointClouds.size === 0) return null;
+
+    // If only one point cloud, return it directly
+    if (this._pointClouds.size === 1) {
+      const [first] = this._pointClouds.values();
+      return first.data;
+    }
+
+    // Merge multiple point clouds
+    // Calculate total point count
+    let totalPoints = 0;
+    for (const pc of this._pointClouds.values()) {
+      totalPoints += pc.data.pointCount;
+    }
+
+    if (totalPoints === 0) return null;
+
+    // Use the first point cloud's coordinate origin
+    const [firstPc] = this._pointClouds.values();
+    const originLng = firstPc.coordinateOrigin[0];
+    const originLat = firstPc.coordinateOrigin[1];
+
+    // Allocate merged arrays
+    const positions = new Float32Array(totalPoints * 3);
+    const intensities = new Float32Array(totalPoints);
+    const classifications = new Uint8Array(totalPoints);
+
+    let offset = 0;
+    for (const pc of this._pointClouds.values()) {
+      const data = pc.data;
+      const count = data.pointCount;
+
+      // Adjust positions to common origin
+      const dLng = pc.coordinateOrigin[0] - originLng;
+      const dLat = pc.coordinateOrigin[1] - originLat;
+
+      for (let i = 0; i < count; i++) {
+        positions[(offset + i) * 3] = data.positions[i * 3] + dLng;
+        positions[(offset + i) * 3 + 1] = data.positions[i * 3 + 1] + dLat;
+        positions[(offset + i) * 3 + 2] = data.positions[i * 3 + 2];
+      }
+
+      if (data.intensities) {
+        intensities.set(data.intensities.subarray(0, count), offset);
+      }
+
+      if (data.classifications) {
+        classifications.set(data.classifications.subarray(0, count), offset);
+      }
+
+      offset += count;
+    }
+
+    return {
+      positions,
+      coordinateOrigin: [originLng, originLat, 0],
+      intensities,
+      classifications,
+      pointCount: totalPoints,
+      bounds: firstPc.data.bounds,
+      hasRGB: firstPc.data.hasRGB,
+      hasIntensity: true,
+      hasClassification: true,
+    };
+  }
+
+  /**
+   * Creates a deck.gl layer for a point cloud.
+   * Chunks large point clouds into multiple layers to avoid WebGL buffer limits.
+   * Uses coordinateOrigin + LNGLAT_OFFSETS to maintain Float32 precision.
+   * Applies elevation filter if set.
+   */
+  private _createLayer(id: string): void {
+    const pc = this._pointClouds.get(id);
+    if (!pc) return;
+
+    const { data, colors, coordinateOrigin, visible, opacityOverride } = pc;
+    const elevationRange = this._options.elevationRange;
+    const zOffset = this._options.zOffset ?? 0;
+    const layerOpacity = opacityOverride ?? this._options.opacity;
+
+    // Remove existing chunk layers first (use a generous upper bound)
+    const maxPossibleChunks = Math.ceil(data.pointCount / 1000000) + 1;
+    for (let chunk = 0; chunk < maxPossibleChunks; chunk++) {
+      this._deckOverlay.removeLayer(`pointcloud-${id}-chunk${chunk}`);
+    }
+
+    // If layer is not visible, don't create any layers
+    if (!visible) {
+      return;
+    }
+
+    // Build filtered indices list
+    const filteredIndices: number[] = [];
+
+    for (let i = 0; i < data.pointCount; i++) {
+      const elevation = data.positions[i * 3 + 2];
+      if (elevationRange === null ||
+          (elevation >= elevationRange[0] && elevation <= elevationRange[1])) {
+        filteredIndices.push(i);
+      }
+    }
+
+    // If no points pass the filter, don't create any layers
+    if (filteredIndices.length === 0) {
+      return;
+    }
+
+    // Chunk size - 1 million points per layer to stay within WebGL limits
+    const CHUNK_SIZE = 1000000;
+    const numChunks = Math.ceil(filteredIndices.length / CHUNK_SIZE);
+
+    for (let chunk = 0; chunk < numChunks; chunk++) {
+      const chunkStart = chunk * CHUNK_SIZE;
+      const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, filteredIndices.length);
+      const chunkSize = chunkEnd - chunkStart;
+
+      const chunkPositions = new Float32Array(chunkSize * 3);
+      const chunkColors = new Uint8Array(chunkSize * 4);
+      const originalIndices: number[] = [];
+
+      for (let i = 0; i < chunkSize; i++) {
+        const srcIdx = filteredIndices[chunkStart + i];
+        originalIndices.push(srcIdx);
+
+        chunkPositions[i * 3] = data.positions[srcIdx * 3];
+        chunkPositions[i * 3 + 1] = data.positions[srcIdx * 3 + 1];
+        // Apply Z offset to elevation
+        chunkPositions[i * 3 + 2] = data.positions[srcIdx * 3 + 2] + zOffset;
+
+        chunkColors[i * 4] = colors[srcIdx * 4];
+        chunkColors[i * 4 + 1] = colors[srcIdx * 4 + 1];
+        chunkColors[i * 4 + 2] = colors[srcIdx * 4 + 2];
+        chunkColors[i * 4 + 3] = colors[srcIdx * 4 + 3];
+      }
+
+      // Create hover handler for this chunk
+      const handleHover = (info: PickingInfo) => {
+        if (!this._options.onHover) return;
+
+        if (info.index >= 0 && info.picked && info.index < originalIndices.length) {
+          const originalIndex = originalIndices[info.index];
+          const pointInfo: PickedPointInfo = {
+            index: originalIndex,
+            longitude: coordinateOrigin[0] + chunkPositions[info.index * 3],
+            latitude: coordinateOrigin[1] + chunkPositions[info.index * 3 + 1],
+            elevation: chunkPositions[info.index * 3 + 2],
+            x: info.x,
+            y: info.y,
+          };
+
+          if (data.intensities) {
+            pointInfo.intensity = data.intensities[originalIndex];
+          }
+
+          if (data.classifications) {
+            pointInfo.classification = data.classifications[originalIndex];
+          }
+
+          // Add RGB colors if available
+          if (data.colors && data.hasRGB) {
+            pointInfo.red = data.colors[originalIndex * 4];
+            pointInfo.green = data.colors[originalIndex * 4 + 1];
+            pointInfo.blue = data.colors[originalIndex * 4 + 2];
+          }
+
+          // Add all extra attributes dynamically
+          if (data.extraAttributes) {
+            const attributes: Record<string, number> = {};
+            for (const [name, arr] of Object.entries(data.extraAttributes)) {
+              if (arr && originalIndex < arr.length) {
+                attributes[name] = arr[originalIndex];
+              }
+            }
+            if (Object.keys(attributes).length > 0) {
+              pointInfo.attributes = attributes;
+            }
+          }
+
+          this._options.onHover(pointInfo);
+        } else {
+          this._options.onHover(null);
+        }
+      };
+
+      // Create a unique data fingerprint to force deck.gl to update
+      const elevationKey = elevationRange ? `${elevationRange[0]}-${elevationRange[1]}` : 'none';
+      const zOffsetKey = zOffset;
+
+      const layer = new PointCloudLayer({
+        id: `pointcloud-${id}-chunk${chunk}`,
+        coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
+        coordinateOrigin: coordinateOrigin,
+        data: {
+          length: chunkSize,
+          attributes: {
+            getPosition: { value: chunkPositions, size: 3 },
+            getColor: { value: chunkColors, size: 4 },
+          },
+        },
+        pointSize: this._options.pointSize,
+        sizeUnits: 'pixels',
+        opacity: layerOpacity,
+        getNormal: [0, 0, 1],
+        pickable: this._options.pickable,
+        onHover: this._options.pickable ? handleHover : undefined,
+        autoHighlight: this._options.pickable,
+        highlightColor: [255, 255, 0, 200],
+        // Force update when these values change
+        updateTriggers: {
+          getPosition: [elevationKey, zOffsetKey, chunkSize],
+          getColor: [elevationKey, chunkSize],
+        },
+      });
+
+      this._deckOverlay.addLayer(`pointcloud-${id}-chunk${chunk}`, layer);
+    }
+  }
+
+  /**
+   * Updates all layers with current options.
+   */
+  private _updateAllLayers(): void {
+    for (const id of this._pointClouds.keys()) {
+      this._createLayer(id);
+    }
+  }
+}
