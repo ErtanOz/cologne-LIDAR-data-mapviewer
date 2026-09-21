@@ -17,12 +17,27 @@ const BASEMAPS = {
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
 };
 
+const CLASSIFICATION_FILTERS = [
+  { code: 2, label: 'Boden', hint: 'LAS-Klasse 2' },
+  { code: 3, label: 'Niedrige Vegetation', hint: 'LAS-Klasse 3' },
+  { code: 4, label: 'Mittlere Vegetation', hint: 'LAS-Klasse 4' },
+  { code: 5, label: 'Hohe Vegetation / Baumkronen', hint: 'LAS-Klasse 5' },
+  { code: 6, label: 'Gebäude', hint: 'LAS-Klasse 6' },
+];
+
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [activeUrls, setActiveUrls] = useState<string[]>([AVAILABLE_FILES[0].url]);
   const [basemap, setBasemap] = useState<'dark' | 'light'>('dark');
   const [controlExpanded, setControlExpanded] = useState(true);
+  const [classificationVisibility, setClassificationVisibility] = useState<Record<number, boolean>>({
+    2: true,
+    3: true,
+    4: true,
+    5: true,
+    6: true,
+  });
   const lidarControlRef = useRef<LidarControl | null>(null);
   const loadedPointClouds = useRef<Map<string, string>>(new Map()); // URL -> ID
 
@@ -98,19 +113,53 @@ function App() {
       try {
         const info = await control.loadPointCloud(url);
         loadedPointClouds.current.set(url, info.id);
+
+        // Re-apply sidebar classification visibility after a dataset load.
+        Object.entries(classificationVisibility).forEach(([code, visible]) => {
+          control.setClassificationVisibility(Number(code), visible);
+        });
       } catch (err) {
         console.error(`Failed to load ${url}:`, err);
       }
     });
 
-  }, [activeUrls, map]);
+  }, [activeUrls, map, classificationVisibility]);
 
   const toggleUrl = (url: string) => {
     setActiveUrls(prev => 
       prev.includes(url) 
-        ? prev.filter(u => u !== url) 
+        ? prev.filter(u => u !== url)
         : [...prev, url]
     );
+  };
+
+  const handleClassificationToggle = (code: number) => {
+    const control = lidarControlRef.current;
+    if (!control) return;
+
+    const nextVisible = !(classificationVisibility[code] ?? true);
+    control.setColorScheme('classification');
+    control.setClassificationVisibility(code, nextVisible);
+    setClassificationVisibility(prev => ({ ...prev, [code]: nextVisible }));
+  };
+
+  const showAllMainClasses = () => {
+    const control = lidarControlRef.current;
+    if (!control) return;
+
+    control.setColorScheme('classification');
+    control.showAllClassifications();
+    setClassificationVisibility({ 2: true, 3: true, 4: true, 5: true, 6: true });
+  };
+
+  const showVegetationOnly = () => {
+    const control = lidarControlRef.current;
+    if (!control) return;
+
+    control.setColorScheme('classification');
+    control.hideAllClassifications();
+    [3, 4, 5].forEach(code => control.setClassificationVisibility(code, true));
+    setClassificationVisibility({ 2: false, 3: true, 4: true, 5: true, 6: false });
   };
 
   const handleControlReady = (control: LidarControl) => {
@@ -151,6 +200,29 @@ function App() {
               </label>
             ))}
           </div>
+        </div>
+
+        <div className="sidebar-section">
+          <h3>LiDAR-Klassen</h3>
+          <div className="toggle-group">
+            <button onClick={showAllMainClasses}>Alle</button>
+            <button onClick={showVegetationOnly}>Nur Vegetation</button>
+          </div>
+          <div className="checkbox-list">
+            {CLASSIFICATION_FILTERS.map((item) => (
+              <label key={item.code} className="checkbox-item" title={item.hint}>
+                <input
+                  type="checkbox"
+                  checked={classificationVisibility[item.code] ?? true}
+                  onChange={() => handleClassificationToggle(item.code)}
+                />
+                <span className="checkbox-label">{item.label}</span>
+              </label>
+            ))}
+          </div>
+          <p style={{ fontSize: '11px', opacity: 0.72, lineHeight: 1.4, marginTop: '8px' }}>
+            Hinweis: Einzelne Bäume sind in Standard-LAS-Daten meist nicht als eigene Klasse vorhanden. Klasse 5 steht für hohe Vegetation und enthält typischerweise Baumkronen.
+          </p>
         </div>
         
         <div className="info-panel">
