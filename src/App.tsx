@@ -128,7 +128,7 @@ function App() {
   const toggleUrl = (url: string) => {
     setActiveUrls(prev => 
       prev.includes(url) 
-        ? prev.filter(u => u !== url)
+        ? prev.filter(u => u !== url) 
         : [...prev, url]
     );
   };
@@ -170,7 +170,7 @@ function App() {
   return (
     <div className="app-container">
       <div className="sidebar">
-        <h1>Cologne LidarData MapViewer</h1>
+        <h1>Urban Green LiDAR Map</h1>
         
         <div className="sidebar-section">
           <h3>Basemap</h3>
@@ -226,7 +226,7 @@ function App() {
         </div>
         
         <div className="info-panel">
-          <p>Analyzing Cologne high-resolution LiDAR scans.</p>
+          <p>Exploring Cologne's urban green structures with high-resolution LiDAR data.</p>
           <div className="instructions">
             <ul>
               <li><span>Pan</span> <strong>Left Drag</strong></li>
@@ -254,7 +254,7 @@ function App() {
       {map && (
         <LidarControlReact
           map={map}
-          title="Cologne Lidar Control"
+          title="Urban Green LiDAR Controls"
           position="top-right"
           pointSize={state.pointSize}
           colorScheme={state.colorScheme}
